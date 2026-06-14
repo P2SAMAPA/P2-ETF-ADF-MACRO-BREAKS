@@ -1,73 +1,35 @@
 import numpy as np
-from scipy import stats
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
-def adf_statistic(series, max_lag=5):
+def autocorrelation_score(returns, macro_series):
     """
-    Compute ADF t‑statistic for a single series (no breaks).
-    Returns t‑statistic (more negative = mean‑reverting).
+    Compute first‑order autocorrelation of returns.
+    More negative = mean‑reverting, more positive = trending.
     """
-    n = len(series)
-    if n < 10:
+    if len(returns) < 5:
         return 0.0
-    y = np.diff(series)
-    y_lag = series[:-1]
-    # Build X matrix: constant, lagged level, lagged differences
-    X = [np.ones(len(y_lag)), y_lag]
-    for lag in range(1, max_lag + 1):
-        if len(y) > lag:
-            X.append(np.roll(y, lag)[lag:])
-    # Align lengths
-    min_len = min(len(x) for x in X)
-    X = np.column_stack([x[:min_len] for x in X])
-    y_aligned = y[:min_len]
-    # Remove NaN
-    mask = ~(np.isnan(X).any(axis=1) | np.isnan(y_aligned))
-    X = X[mask]
-    y_aligned = y_aligned[mask]
-    if len(y_aligned) < 10:
+    # Compute lag‑1 autocorrelation
+    y1 = returns[1:]
+    y0 = returns[:-1]
+    # Remove any NaN
+    mask = ~(np.isnan(y1) | np.isnan(y0))
+    y1 = y1[mask]
+    y0 = y0[mask]
+    if len(y1) < 5:
         return 0.0
-    try:
-        beta, _, _, _ = np.linalg.lstsq(X, y_aligned, rcond=None)
-        resid = y_aligned - X @ beta
-        sigma2 = np.sum(resid**2) / (len(resid) - X.shape[1])
-        XtX_inv = np.linalg.inv(X.T @ X)
-        se_beta1 = np.sqrt(sigma2 * XtX_inv[1, 1])
-        t_stat = beta[1] / se_beta1
-        return t_stat
-    except:
+    # Pearson correlation
+    corr = np.corrcoef(y0, y1)[0, 1]
+    if np.isnan(corr):
         return 0.0
-
-def macro_adf_score(returns, macro_series, max_lag=5):
-    """
-    Compute ADF statistic separately for high and low macro regimes,
-    then return the difference (how much mean reversion changes with macro).
-    """
-    if len(returns) < 20 or len(macro_series) < 20:
-        return 0.0
-    # Align
-    min_len = min(len(returns), len(macro_series))
-    returns = returns[:min_len]
-    macro_series = macro_series[:min_len]
-    # Split at median
-    median = np.median(macro_series)
-    high_idx = macro_series > median
-    low_idx = macro_series <= median
-    if np.sum(high_idx) < 10 or np.sum(low_idx) < 10:
-        return 0.0
-    t_high = adf_statistic(returns[high_idx], max_lag)
-    t_low = adf_statistic(returns[low_idx], max_lag)
-    # Score = difference in mean‑reversion strength between regimes
-    # More positive means ETF becomes more mean‑reverting when macro is high
-    score = (t_low - t_high) / (abs(t_low) + abs(t_high) + 1e-8)
-    return float(score)
+    # Return negative correlation so that mean‑reverting (negative corr) gives positive score
+    return -corr
 
 def adf_score(returns, macro_df, max_lag=5):
     """
-    Compute combined score across all macro variables.
-    For each macro, compute the regime‑sensitive ADF difference.
-    Then weighted average using ridge regression weights (predicting next‑day return).
+    Compute combined score across all macro variables using weighted autocorrelation.
+    For each macro variable, compute autocorrelation separately on high/low regimes,
+    then combine with macro importance weights.
     """
     if len(returns) < 20 or macro_df is None or len(macro_df) < 20:
         return 0.0
@@ -75,14 +37,23 @@ def adf_score(returns, macro_df, max_lag=5):
     min_len = min(len(returns), len(macro_df))
     returns = returns[:min_len]
     macro_df = macro_df.iloc[:min_len]
-    # Compute per‑macro scores
+    # For each macro, compute regime‑sensitive autocorrelation
     per_macro_scores = []
     for col in macro_df.columns:
         macro_series = macro_df[col].values
-        s = macro_adf_score(returns, macro_series, max_lag)
-        per_macro_scores.append(s)
+        # Split at median
+        median = np.median(macro_series)
+        high_idx = macro_series > median
+        low_idx = macro_series <= median
+        if np.sum(high_idx) < 5 or np.sum(low_idx) < 5:
+            per_macro_scores.append(0.0)
+            continue
+        autocorr_high = autocorrelation_score(returns[high_idx], macro_series[high_idx])
+        autocorr_low = autocorrelation_score(returns[low_idx], macro_series[low_idx])
+        # Score = difference in mean reversion between high and low macro
+        score = autocorr_high - autocorr_low
+        per_macro_scores.append(score)
     # Estimate macro importance via ridge regression (predict next‑day return)
-    # Use lagged macro to predict next return
     X = macro_df.iloc[:-1].values
     y = returns[1:]
     # Remove NaN
@@ -90,13 +61,14 @@ def adf_score(returns, macro_df, max_lag=5):
     X = X[mask]
     y = y[mask]
     if len(y) < 10:
-        return np.mean(per_macro_scores)
+        return float(np.mean(per_macro_scores))
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     ridge = Ridge(alpha=1.0)
     ridge.fit(X_scaled, y)
     weights = np.abs(ridge.coef_)
     weights = weights / (weights.sum() + 1e-8)
-    # Weighted average of per‑macro scores
+    # Weighted average
     combined_score = np.sum(weights * np.array(per_macro_scores))
-    return float(combined_score)
+    # Clip to reasonable range
+    return float(max(-1.0, min(1.0, combined_score)))
