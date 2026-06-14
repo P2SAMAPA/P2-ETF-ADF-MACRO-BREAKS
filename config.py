@@ -27,5 +27,5 @@ MACRO_VARS = [
 ]
 
 # ADF parameters
-MAX_LAG = 5                  # maximum lag length for ADF
+MAX_LAG = 10                  # maximum lag length for ADF
 TOP_N = 3
