@@ -33,7 +33,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="text-align: center;">📈 ADF Test with Macro‑Determined Breaks</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align: center;">Unit root test | Macro‑dependent breakpoints | Mean‑reversion vs trending score</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align: center;">Unit root test | Macro‑conditional mean reversion | Combined score across all macro variables</p>', unsafe_allow_html=True)
 
 st.sidebar.markdown("## 🧮 ADF")
 if st.sidebar.button("🔄 Refresh Data", use_container_width=True, type="primary"):
@@ -42,8 +42,8 @@ if st.sidebar.button("🔄 Refresh Data", use_container_width=True, type="primar
 
 st.sidebar.markdown(f"**Run Date:** `{st.session_state.get('run_date', 'Not loaded')}`")
 st.sidebar.markdown(f"**Next Trading Day:** `{next_trading_day()}`")
-st.sidebar.markdown(f"**Max lag:** {config.MAX_LAG} | **Break threshold:** {config.BREAK_THRESHOLD}")
-st.sidebar.markdown(f"**Primary macro:** {config.PRIMARY_MACRO}")
+st.sidebar.markdown(f"**Max lag:** {config.MAX_LAG}")
+st.sidebar.markdown(f"**Macro variables:** {len(config.MACRO_VARS)} (all used)")
 
 OUTPUT_REPO = config.OUTPUT_REPO
 HF_TOKEN = config.HF_TOKEN
@@ -111,14 +111,15 @@ def display_universe(universe_name, uni_data, window_data, window_label):
 tab1, tab2 = st.tabs(["📊 Best Window (Auto)", "🔍 Choose Window (Manual)"])
 
 with tab1:
-    st.header("📈 Top ETFs by Mean‑Reversion Strength (Auto Best Window)")
+    st.header("📈 Top ETFs by Macro‑Conditional Mean Reversion (Auto Best Window)")
     with st.expander("📖 Interpretation", expanded=False):
         st.markdown("""
         - **Augmented Dickey‑Fuller (ADF) test** determines whether a time series has a unit root.
-        - Breakpoints (structural changes) are placed where the primary macro (VIX) exceeds a high percentile.
-        - The test statistic measures evidence against a unit root: **more negative = stronger mean reversion**.
-        - We report `-ADF statistic` as the score – higher = more mean‑reverting (predictable).
-        - Lower score = trending (random walk‑like).
+        - For each macro variable, we compute the ADF statistic separately on high and low macro regimes.
+        - The per‑macro score measures how mean reversion changes with that macro.
+        - A **combined score** is computed as a weighted average across all macro variables (weights = ridge regression coefficients predicting next‑day return).
+        - **Higher score** → ETF becomes more mean‑reverting when macro conditions are favourable → potential range‑bound alpha.
+        - **Lower score** → ETF tends to trend (momentum) under current macro.
         """)
     for universe_name, uni_data in data["universes"].items():
         if not uni_data or not uni_data.get("all_windows"):
@@ -137,7 +138,7 @@ with tab1:
 
 with tab2:
     st.header("🔍 Manual Window Selection")
-    st.markdown("Choose a rolling window to inspect the ADF scores.")
+    st.markdown("Choose a rolling window to inspect the mean‑reversion scores.")
     for universe_name, uni_data in data["universes"].items():
         if not uni_data or not uni_data.get("all_windows"):
             st.warning(f"No window data for {universe_name}")
@@ -151,4 +152,4 @@ with tab2:
             st.warning("No data for selected window.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("ADF Test with Macro Breaks | Unit root testing with macro‑determined structural breaks")
+st.sidebar.caption("ADF Test with Macro Breaks | Macro‑conditional unit root testing")
