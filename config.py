@@ -25,9 +25,7 @@ MACRO_VARS = [
     "DGS1MO", "DGS3MO", "DGS6MO", "DGS1", "DGS2", "DGS5", "DGS7",
     "DGS10", "DGS20", "DGS30"
 ]
-PRIMARY_MACRO = "VIX"        # macro used to determine breaks
 
 # ADF parameters
 MAX_LAG = 5                  # maximum lag length for ADF
-BREAK_THRESHOLD = 0.7        # percentile for macro to trigger break
 TOP_N = 3
