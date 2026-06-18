@@ -2,7 +2,7 @@ name: Daily ADF Breaks Training
 
 on:
   schedule:
-    - cron: '0 04 * * *'
+    - cron: '50 01 * * *'
   workflow_dispatch:
 
 jobs:
